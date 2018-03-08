@@ -25,9 +25,9 @@
  ********************************************************/
 team_t team = {
     /* Team name */
-    "ateam",
+    "Hooli",
     /* First member's full name */
-    "Daniel Stinson-DIess",
+    "Daniel Stinson-Diess",
     /* First member's email address */
     "dstin002@ucr.edu",
     /* Second member's full name (leave blank if none) */
@@ -37,19 +37,20 @@ team_t team = {
 };
 
 /* single word (4) or double word (8) alignment */
-#define WSIZE       4
-#define DSIZE		8
-#define ALIGNMENT   DSIZE
-#define CHUNKSIZE   (1<<12)
+#define WSIZE			4
+#define DSIZE			8
+#define ALIGNMENT		DSIZE
+#define CHUNKSIZE		(1<<12)
+#define MINBLK			(2*DSIZE)
 
 /* MAX helper macro */
-#define MAX(x, y)       ((x) > (y) ? (x) : (y))
+#define MAX(x, y)		((x) > (y) ? (x) : (y))
 
 /* rounds up to the nearest multiple of ALIGNMENT */
-#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
-#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+#define ALIGN(size)		(((size) + (ALIGNMENT-1)) & ~0x7)
+#define SIZE_T_SIZE		(ALIGN(sizeof(size_t)))
 
-#define PACK(size, alloc)   ((size) | (alloc))
+#define PACK(size, alloc)	((size) | (alloc))
 
 /* Read and write a word at address p */
 #define GET(p)			(*(unsigned int *)(p))
@@ -68,9 +69,7 @@ team_t team = {
 #define PREV_BLKP(bp)	((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
 
-
-
-// Global Variable for Free List:
+// Global Variable for start of heap.
 void* heap_listp;
 
 // Helper Functions:
@@ -113,7 +112,7 @@ void *mm_malloc(size_t size) {
 
     // Adjust the block size to incluse header/footer + alignment.
     if (size <= DSIZE) {
-        aSize = 2*DSIZE;
+        aSize = MINBLK;
     } else {
         aSize = DSIZE * ((size + (DSIZE) + (DSIZE - 1))/ DSIZE);
     }
@@ -236,7 +235,7 @@ static void place(void* ptr, size_t neededSize) {
     
     size_t blockSize = GET_SIZE(HDRP(ptr));   
 
-    if ((blockSize - neededSize) >= (2 * DSIZE)) { 
+    if ((blockSize - neededSize) >= MINBLK) { 
         PUT(HDRP(ptr), PACK(neededSize, 1));
         PUT(FTRP(ptr), PACK(neededSize, 1));
         ptr = NEXT_BLKP(ptr);
