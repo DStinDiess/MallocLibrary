@@ -25,15 +25,15 @@
  ********************************************************/
 team_t team = {
     /* Team name */
-    "Hooli",
+    " Hooli",
     /* First member's full name */
-    "Daniel Stinson-Diess",
+    " Daniel Stinson-Diess",
     /* First member's email address */
-    "dstin002@ucr.edu",
+    " dstin002@ucr.edu",
     /* Second member's full name (leave blank if none) */
-    "Kennen Derenard",
+    " Kennen Derenard",
     /* Second member's email address (leave blank if none) */
-    "kdere004@ucr.edu"
+    " kdere004@ucr.edu"
 };
 
 /* single word (4) or double word (8) alignment */
@@ -47,43 +47,45 @@ team_t team = {
 #define MAX(x, y)		((x) > (y) ? (x) : (y))
 
 /* rounds up to the nearest multiple of ALIGNMENT */
-#define ALIGN(size)		(((size) + (ALIGNMENT-1)) & ~0x7)
-#define SIZE_T_ALIGN    (ALIGN(sizeof(size_t)))
+#define ALIGN(size)			(((size) + (ALIGNMENT-1)) & ~0x7)
+#define SIZE_T_ALIGN		(ALIGN(sizeof(size_t)))
 
 #define PACK(size, alloc)	((size) | (alloc))
 
 /* Read and write a word at address p */
-#define GET(p)			(*(unsigned int *)(p))
-#define SET_INT(p, val) (*(unsigned int *)(p) = (val))
+#define GET(p)				(*(unsigned int *)(p))
+#define SET_INT(p, val)		(*(unsigned int *)(p) = (val))
 
 /* Read the size and allocated fields from address p */
-#define GET_SIZE(p)     (GET(p) & ~0x1)
-#define IS_ALLOC(p)     (GET(p) & 0x1)
+#define GET_SIZE(p)			(GET(p) & ~0x1)
+#define IS_ALLOC(p)			(GET(p) & 0x1)
 
 /* Given a block ptr bp, compute address of its header and footer */
-#define HEADER(bp)		((char *)(bp) - WSIZE)
-#define FOOTER(bp)		((char *)(bp) + GET_SIZE(HEADER(bp)) - ALIGNMENT)
+#define HEADER(bp)			((char *)(bp) - WSIZE)
+#define FOOTER(bp)			((char *)(bp) + GET_SIZE(HEADER(bp)) - ALIGNMENT)
 
 /* Given block ptr bp, computer the address of the next and previous blocks */
-#define NEXT_BLK(bp)	((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
-#define PREV_BLK(bp)	((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
+#define NEXT_BLK(bp)		((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
+#define PREV_BLK(bp)		((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
 /* Macros to operate on free blocks */
-#define NEXT_FREE(bp)   (HEADER(bp) + 1*WSIZE)
-#define PREV_FREE(bp)   (HEADER(bp) + 2*WSIZE)
-#define SET_PTR(p, val) (*(char *)(p) = (char)(val))
+#define NEXT_PTR(bp)		(*(char **)(bp + 1*WSIZE))
+#define PREV_PTR(bp)		(*(char **)(bp))
 
+#define SET_PTR(bp, val)	(bp = val)
 
 // Global Variable for start of heap.
-void* freelist_start;
-void* freelist_end;
-void* heap_listp;
+void* freelist_head = NULL;
+
+void* heap_listp = NULL;
 
 // Helper Functions:
 static void* extend_heap(size_t);
 static void* coalesce(void*);
 static void* find_fit(size_t);
 static void  split(void*, size_t);
+static void* push_front(void*);
+static void  erase(void*);
 
 /* 
  * mm_init - initialize the malloc package.
@@ -98,7 +100,7 @@ int mm_init(void) {
     SET_INT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));    //Prologue Footer
     SET_INT(heap_listp + (3*WSIZE), PACK(0, 1));        //Epilogue Header
 
-    heap_listp += (2*WSIZE);
+    freelist_head = heap_listp + (2*WSIZE);
 
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
         return -1;
@@ -119,7 +121,7 @@ void *mm_malloc(size_t size) {
         return NULL;
 
     // Adjust the block size to incluse header/footer + alignment.
-    if (size <= DSIZE) {
+    if (size <= MINBLK) {
         adjustedSize = MINBLK;
     } else {
         adjustedSize = DSIZE * ((size + (DSIZE) + (DSIZE - 1))/ DSIZE);
@@ -149,16 +151,11 @@ void mm_free(void *ptr) {
     SET_INT(HEADER(ptr), PACK(size, 0));
     SET_INT(FOOTER(ptr), PACK(size, 0));
     coalesce(ptr);
-
-
-    /* TODO: Add newly freed block to the free list */
-    // SET_PTR(NEXT_FREE(freelist_end), ptr);
-    // SET_PTR(PREV_FREE(ptr), freelist_end);
-    // freelist_end = ptr;
 }
 
 /*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ * mm_realloc - Implemented simply in terms of mm_malloc and mm_free.
+ * 					Done to recieve a wholistic score.
  */
 void *mm_realloc(void *ptr, size_t size) {
     void* new_ptr = mm_malloc(size);
@@ -193,34 +190,38 @@ static void* extend_heap(size_t words) {
  */
 static void* coalesce(void* ptr) {
     
-    size_t prev_alloc = IS_ALLOC(FOOTER(PREV_BLK(ptr)));
+    size_t prev_alloc = IS_ALLOC(FOOTER(PREV_BLK(ptr))) || PREV_BLK(ptr) == ptr;
     size_t next_alloc = IS_ALLOC(HEADER(NEXT_BLK(ptr)));
     size_t size = GET_SIZE(HEADER(ptr));
 
-    if (prev_alloc && next_alloc) {                         // Souronding blocks are allocated
-        return ptr;
+    if (prev_alloc && next_alloc) {				// Souronding blocks are allocated
+    	// Do nothing
 
-    } else if (prev_alloc && !next_alloc) {                 // Next block is free
+    } else if (prev_alloc && !next_alloc) {		// Next block is free
         size += GET_SIZE(HEADER(NEXT_BLK(ptr)));
+        erase(NEXT_PTR(ptr));
         SET_INT(HEADER(ptr), PACK(size, 0));
         SET_INT(FOOTER(ptr), PACK(size, 0));
 
-
-    } else if (!prev_alloc && next_alloc) {                 // Previous block is free
+    } else if (!prev_alloc && next_alloc) {		// Previous block is free
         size += GET_SIZE(FOOTER(PREV_BLK(ptr)));
+        erase(PREV_PTR(ptr));
         SET_INT(FOOTER(ptr), PACK(size, 0));
         SET_INT(HEADER(PREV_BLK(ptr)), PACK(size, 0));
         ptr = PREV_BLK(ptr);
 
-    } else {                                                // Both next & prev block are free
+    } else {									// Both next & prev block are free
         size += GET_SIZE(HEADER(PREV_BLK(ptr))) + GET_SIZE(FOOTER(NEXT_BLK(ptr)));
-        SET_INT(HEADER(PREV_BLK(ptr)), PACK(size, 0));
-        SET_INT(FOOTER(NEXT_BLK(ptr)), PACK(size, 0));
+        erase(NEXT_PTR(ptr));
+        erase(PREV_PTR(ptr));
         ptr = PREV_BLK(ptr);
 
+        SET_INT(HEADER(PREV_BLK(ptr)), PACK(size, 0));
+        SET_INT(FOOTER(NEXT_BLK(ptr)), PACK(size, 0));
+        
     }
 
-    return ptr;
+    return push_front(ptr);
 }
 
 /* 
@@ -231,8 +232,8 @@ static void* find_fit(size_t aSize) {
     void* bestFit = NULL;
     int sizeDiff = INT_MAX;
 
-    for (ptr = heap_listp; GET_SIZE(HEADER(ptr)) > 0; ptr = NEXT_BLK(ptr) ) {
-        if (GET_SIZE(HEADER(ptr)) >= aSize && !IS_ALLOC(HEADER(ptr))) {
+    for (ptr = freelist_head; IS_ALLOC(HEADER(ptr)) == 0; ptr = NEXT_PTR(ptr)) {
+        if (GET_SIZE(HEADER(ptr)) >= aSize) {
             if ((GET_SIZE(HEADER(ptr)) - aSize) < sizeDiff) {
                 sizeDiff = GET_SIZE(HEADER(ptr)) - aSize;
                 bestFit = ptr;
@@ -254,11 +255,42 @@ static void split(void* ptr, size_t neededSize) {
     if ((blockSize - neededSize) >= MINBLK) { 
         SET_INT(HEADER(ptr), PACK(neededSize, 1));
         SET_INT(FOOTER(ptr), PACK(neededSize, 1));
+        erase(ptr);
         ptr = NEXT_BLK(ptr);
         SET_INT(HEADER(ptr), PACK(blockSize-neededSize, 0));
         SET_INT(FOOTER(ptr), PACK(blockSize-neededSize, 0));
+        coalesce(ptr);
     } else {
         SET_INT(HEADER(ptr), PACK(blockSize, 1));
         SET_INT(FOOTER(ptr), PACK(blockSize, 1));
+        erase(ptr);
     }
+}
+
+/* 
+ * push_front - Places the new segment into the freelist.
+ */
+static void* push_front(void* new_ptr) {
+	SET_PTR(NEXT_PTR(new_ptr), freelist_head);
+	SET_PTR(PREV_PTR(new_ptr), NULL);
+	SET_PTR(PREV_PTR(freelist_head), new_ptr);
+
+	freelist_head = new_ptr;
+
+	return freelist_head;
+}
+
+/* 
+ * erase - Removes the new segment from the freelist.
+ */
+static void erase(void* delNode) {
+	if (PREV_PTR(delNode)) {
+		SET_PTR(NEXT_PTR(PREV_PTR(delNode)), NEXT_PTR(delNode));
+	
+	} else {
+		freelist_head = NEXT_PTR(delNode);
+
+	}
+
+	SET_PTR(PREV_PTR(NEXT_PTR(delNode)), PREV_PTR(delNode));
 }
