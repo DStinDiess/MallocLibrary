@@ -14,7 +14,6 @@
 #include <assert.h>
 #include <unistd.h>
 #include <string.h>
-#include <limits.h>
 
 #include "mm.h"
 #include "memlib.h"
@@ -41,7 +40,7 @@ team_t team = {
 #define DSIZE			8
 #define ALIGNMENT		DSIZE
 #define CHUNKSIZE		(1<<12)
-#define MINBLK			(3*DSIZE)
+#define MINBLK			(2*DSIZE)
 
 /* MAX helper macro */
 #define MAX(x, y)		((x) > (y) ? (x) : (y))
@@ -158,11 +157,35 @@ void mm_free(void *ptr) {
  * 					Done to recieve a wholistic score.
  */
 void *mm_realloc(void *ptr, size_t size) {
-    void* new_ptr = mm_malloc(size);
-    memcpy(new_ptr, ptr, size);
-    mm_free(ptr);
-    return new_ptr;
+    if (size <= 0) {
+        mm_free(ptr);
+        return ptr;
+    } else if (size + 2*DSIZE <= GET_SIZE(HEADER(ptr))) {
+        return ptr;
+    } else {
+        
+        int next_block_available = IS_ALLOC(HEADER(NEXT_BLK(ptr)));
+        int current_size = GET_SIZE(HEADER(ptr));
+        int next_size = GET_SIZE(HEADER(NEXT_BLK(ptr)));
+
+        if (!next_block_available && (next_size + current_size > size + DSIZE)) {
+            erase(NEXT_BLK(ptr));
+            SET_INT(HEADER(ptr), PACK(next_size + current_size, 1));
+            SET_INT(FOOTER(ptr), PACK(next_size + current_size, 1));
+            return ptr;
+        }
+        
+
+        void* new_ptr = mm_malloc(size);
+        memcpy(new_ptr, ptr, size);
+        mm_free(ptr);
+        return new_ptr;
+        
+    }
 }
+        
+    
+
 
 /* 
  * extend_heap - Extend the heap with a new free block.
@@ -225,22 +248,17 @@ static void* coalesce(void* ptr) {
 }
 
 /* 
- * find_fit - Find a fit for a chunk of aSize, implemented with best fit.
+ * find_fit - Find a fit for a chunk of aSize, implemented with first fit.
  */
 static void* find_fit(size_t aSize) {
-    void* ptr;
-    void* bestFit = NULL;
-    int sizeDiff = INT_MAX;
+    void* ptr = NULL;
 
     for (ptr = freelist_head; IS_ALLOC(HEADER(ptr)) == 0; ptr = NEXT_PTR(ptr)) {
         if (GET_SIZE(HEADER(ptr)) >= aSize) {
-            if ((GET_SIZE(HEADER(ptr)) - aSize) < sizeDiff) {
-                sizeDiff = GET_SIZE(HEADER(ptr)) - aSize;
-                bestFit = ptr;
-            }
+            return ptr;
         }
     }
-    return bestFit;
+    return NULL;
 }
 
 /* 
