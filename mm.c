@@ -69,13 +69,10 @@ team_t team = {
 #define PREV_BLK(bp)		((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
 /* Macros to operate on free blocks */
-#define NEXT_PTR(bp)		(*(char **)(bp + 2*WSIZE))
+#define NEXT_PTR(bp)		(*(char **)(bp + 1*WSIZE))
 #define PREV_PTR(bp)		(*(char **)(bp))
 
 #define SET_PTR(bp, val)	(bp = val)
-#define SET_NEXT_PTR(bp, val)   (NEXT_PTR(bp) = val)
-#define SET_PREV_PTR(bp, val)   (PREV_PTR(bp) = val)
-
 
 // Global Variable for start of heap.
 void* freelist_head = NULL;
@@ -95,7 +92,7 @@ static void  erase(void*);
  */
 int mm_init(void) {
 
-    if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
+    if ((heap_listp = mem_sbrk(8*WSIZE)) == (void *)-1)
         return -1;
 
     SET_INT(heap_listp, 0);
@@ -105,7 +102,7 @@ int mm_init(void) {
 
     freelist_head = heap_listp + (2*WSIZE);
 
-    if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
+    if (extend_heap(4) == NULL)
         return -1;
     return 0;
 }
@@ -124,8 +121,8 @@ void *mm_malloc(size_t size) {
         return NULL;
 
     // Adjust the block size to incluse header/footer + alignment.
-    if (size <= MINBLK) {
-        adjustedSize = MINBLK;
+    if (size <= DSIZE) {
+        adjustedSize = 2*DSIZE;
     } else {
         adjustedSize = DSIZE * ((size + (DSIZE) + (DSIZE - 1))/ DSIZE);
     }
@@ -210,16 +207,13 @@ static void* coalesce(void* ptr) {
         size += GET_SIZE(HEADER(PREV_BLK(ptr)));
         ptr = PREV_BLK(ptr);
         erase(ptr);
-        //SET_INT(FOOTER(ptr), PACK(size, 0));
         SET_INT(HEADER(ptr), PACK(size, 0));
         SET_INT(FOOTER(ptr), PACK(size, 0));
-        //ptr = PREV_BLK(ptr);
 
     } else {									// Both next & prev block are free
         size += GET_SIZE(HEADER(PREV_BLK(ptr))) + GET_SIZE(HEADER(NEXT_BLK(ptr)));
-        erase(PREV_BLK(ptr));
         erase(NEXT_BLK(ptr));
-        //erase(PREV_BLK(ptr));
+        erase(PREV_BLK(ptr));
         ptr = PREV_BLK(ptr);
 
         SET_INT(HEADER(ptr), PACK(size, 0));
@@ -276,20 +270,11 @@ static void split(void* ptr, size_t neededSize) {
  * push_front - Places the new segment into the freelist.
  */
 static void* push_front(void* new_ptr) {
-	//SET_PTR(NEXT_PTR(new_ptr), freelist_head);
-	//SET_PTR(PREV_PTR(new_ptr), NULL);
-	//SET_PTR(PREV_PTR(freelist_head), new_ptr);
-	/*if (freelist_head == NULL) {
-            freelist_head = new_ptr;
-            SET_PREV_PTR(new_ptr, NULL);
-            SET_NEXT_PTR(new_ptr, NULL);
-	} else {*/
-	    SET_NEXT_PTR(new_ptr, freelist_head);
-            SET_PREV_PTR(freelist_head, new_ptr);
-            SET_PREV_PTR(new_ptr, NULL);
+	SET_PTR(NEXT_PTR(new_ptr), freelist_head);
+        SET_PTR(PREV_PTR(new_ptr), NULL);
+        SET_PTR(PREV_PTR(freelist_head), new_ptr);
 
-	    freelist_head = new_ptr;
-        //}
+	freelist_head = new_ptr;
 
 	return freelist_head;
 }
@@ -299,15 +284,12 @@ static void* push_front(void* new_ptr) {
  */
 static void erase(void* delNode) {
 	if (PREV_PTR(delNode)) {
-		//SET_PTR(NEXT_PTR(PREV_PTR(delNode)), NEXT_PTR(delNode));
-		SET_NEXT_PTR(PREV_PTR(delNode), NEXT_PTR(delNode));
+		SET_PTR(NEXT_PTR(PREV_PTR(delNode)), NEXT_PTR(delNode));
 	
 	} else {
 		freelist_head = NEXT_PTR(delNode);
 
 	}
 
-	//SET_PTR(PREV_PTR(NEXT_PTR(delNode)), PREV_PTR(delNode));
-	//if (NEXT_PTR(delNode))
-	SET_PREV_PTR(NEXT_PTR(delNode), PREV_PTR(delNode));
+	SET_PTR(PREV_PTR(NEXT_PTR(delNode)), PREV_PTR(delNode));
 }
