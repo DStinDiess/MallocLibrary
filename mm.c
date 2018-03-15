@@ -31,7 +31,7 @@ team_t team = {
     /* First member's email address */
     " dstin002@ucr.edu",
     /* Second member's full name (leave blank if none) */
-    " Kennen Derenard",
+    " Kennen DeRenard",
     /* Second member's email address (leave blank if none) */
     " kdere004@ucr.edu"
 };
@@ -57,7 +57,7 @@ team_t team = {
 #define SET_INT(p, val)		(*(unsigned int *)(p) = (val))
 
 /* Read the size and allocated fields from address p */
-#define GET_SIZE(p)			(GET(p) & ~0x1)
+#define GET_SIZE(p)			(GET(p) & ~0x7)
 #define IS_ALLOC(p)			(GET(p) & 0x1)
 
 /* Given a block ptr bp, compute address of its header and footer */
@@ -69,10 +69,13 @@ team_t team = {
 #define PREV_BLK(bp)		((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
 /* Macros to operate on free blocks */
-#define NEXT_PTR(bp)		(*(char **)(bp + 1*WSIZE))
+#define NEXT_PTR(bp)		(*(char **)(bp + 2*WSIZE))
 #define PREV_PTR(bp)		(*(char **)(bp))
 
 #define SET_PTR(bp, val)	(bp = val)
+#define SET_NEXT_PTR(bp, val)   (NEXT_PTR(bp) = val)
+#define SET_PREV_PTR(bp, val)   (PREV_PTR(bp) = val)
+
 
 // Global Variable for start of heap.
 void* freelist_head = NULL;
@@ -199,25 +202,28 @@ static void* coalesce(void* ptr) {
 
     } else if (prev_alloc && !next_alloc) {		// Next block is free
         size += GET_SIZE(HEADER(NEXT_BLK(ptr)));
-        erase(NEXT_PTR(ptr));
+        erase(NEXT_BLK(ptr));
         SET_INT(HEADER(ptr), PACK(size, 0));
         SET_INT(FOOTER(ptr), PACK(size, 0));
 
     } else if (!prev_alloc && next_alloc) {		// Previous block is free
-        size += GET_SIZE(FOOTER(PREV_BLK(ptr)));
-        erase(PREV_PTR(ptr));
-        SET_INT(FOOTER(ptr), PACK(size, 0));
-        SET_INT(HEADER(PREV_BLK(ptr)), PACK(size, 0));
+        size += GET_SIZE(HEADER(PREV_BLK(ptr)));
         ptr = PREV_BLK(ptr);
+        erase(ptr);
+        //SET_INT(FOOTER(ptr), PACK(size, 0));
+        SET_INT(HEADER(ptr), PACK(size, 0));
+        SET_INT(FOOTER(ptr), PACK(size, 0));
+        //ptr = PREV_BLK(ptr);
 
     } else {									// Both next & prev block are free
-        size += GET_SIZE(HEADER(PREV_BLK(ptr))) + GET_SIZE(FOOTER(NEXT_BLK(ptr)));
-        erase(NEXT_PTR(ptr));
-        erase(PREV_PTR(ptr));
+        size += GET_SIZE(HEADER(PREV_BLK(ptr))) + GET_SIZE(HEADER(NEXT_BLK(ptr)));
+        erase(PREV_BLK(ptr));
+        erase(NEXT_BLK(ptr));
+        //erase(PREV_BLK(ptr));
         ptr = PREV_BLK(ptr);
 
-        SET_INT(HEADER(PREV_BLK(ptr)), PACK(size, 0));
-        SET_INT(FOOTER(NEXT_BLK(ptr)), PACK(size, 0));
+        SET_INT(HEADER(ptr), PACK(size, 0));
+        SET_INT(FOOTER(ptr), PACK(size, 0));
         
     }
 
@@ -240,12 +246,11 @@ static void* find_fit(size_t aSize) {
             }
         }
     }
-
     return bestFit;
 }
 
 /* 
- * place - Places the new segment into the free block. Will slice
+ *i place - Places the new segment into the free block. Will slice
  *          if there is extra space at the end.
  */
 static void split(void* ptr, size_t neededSize) {
@@ -271,11 +276,20 @@ static void split(void* ptr, size_t neededSize) {
  * push_front - Places the new segment into the freelist.
  */
 static void* push_front(void* new_ptr) {
-	SET_PTR(NEXT_PTR(new_ptr), freelist_head);
-	SET_PTR(PREV_PTR(new_ptr), NULL);
-	SET_PTR(PREV_PTR(freelist_head), new_ptr);
+	//SET_PTR(NEXT_PTR(new_ptr), freelist_head);
+	//SET_PTR(PREV_PTR(new_ptr), NULL);
+	//SET_PTR(PREV_PTR(freelist_head), new_ptr);
+	/*if (freelist_head == NULL) {
+            freelist_head = new_ptr;
+            SET_PREV_PTR(new_ptr, NULL);
+            SET_NEXT_PTR(new_ptr, NULL);
+	} else {*/
+	    SET_NEXT_PTR(new_ptr, freelist_head);
+            SET_PREV_PTR(freelist_head, new_ptr);
+            SET_PREV_PTR(new_ptr, NULL);
 
-	freelist_head = new_ptr;
+	    freelist_head = new_ptr;
+        //}
 
 	return freelist_head;
 }
@@ -285,12 +299,15 @@ static void* push_front(void* new_ptr) {
  */
 static void erase(void* delNode) {
 	if (PREV_PTR(delNode)) {
-		SET_PTR(NEXT_PTR(PREV_PTR(delNode)), NEXT_PTR(delNode));
+		//SET_PTR(NEXT_PTR(PREV_PTR(delNode)), NEXT_PTR(delNode));
+		SET_NEXT_PTR(PREV_PTR(delNode), NEXT_PTR(delNode));
 	
 	} else {
 		freelist_head = NEXT_PTR(delNode);
 
 	}
 
-	SET_PTR(PREV_PTR(NEXT_PTR(delNode)), PREV_PTR(delNode));
+	//SET_PTR(PREV_PTR(NEXT_PTR(delNode)), PREV_PTR(delNode));
+	//if (NEXT_PTR(delNode))
+	SET_PREV_PTR(NEXT_PTR(delNode), PREV_PTR(delNode));
 }
