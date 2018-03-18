@@ -74,22 +74,31 @@ team_t team = {
 #define SET_PTR(bp, val)	(bp = val)
 
 // Global Variable for start of heap.
-void* freelist_head = NULL;
+
+void* freeLists[10];
+
+//void* freelist_head = NULL;
 
 void* heap_listp = NULL;
 
 // Helper Functions:
 static void* extend_heap(size_t);
 static void* coalesce(void*);
-static void* find_fit(size_t);
-static void  split(void*, size_t);
-static void* push_front(void*);
-static void  erase(void*);
+static void* find_fit(size_t, void*);
+static void  split(void*, size_t, void*);
+static void* push_front(void*, void*);
+static void  erase(void*, void*);
+static int find_list(size_t);
 
 /* 
  * mm_init - initialize the malloc package.
  */
 int mm_init(void) {
+    int i;
+    
+    for (i = 0; i < 10; ++i) {
+        freeLists[i] = NULL;
+    }
 
     if ((heap_listp = mem_sbrk(8*WSIZE)) == (void *)-1)
         return -1;
@@ -99,7 +108,7 @@ int mm_init(void) {
     SET_INT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));    //Prologue Footer
     SET_INT(heap_listp + (3*WSIZE), PACK(0, 1));        //Epilogue Header
 
-    freelist_head = heap_listp + (2*WSIZE);
+    freeLists[0] = heap_listp + (2*WSIZE);
 
     if (extend_heap(4) == NULL)
         return -1;
@@ -127,16 +136,20 @@ void *mm_malloc(size_t size) {
     }
 
     // Search the free list for a fit
-    if ((ptr = find_fit(adjustedSize)) != NULL) {
-        split(ptr, adjustedSize);
-        return ptr;
+    int listIndex = find_list(adjustedSize);
+    while (listIndex < 10) {
+        if ((ptr = find_fit(adjustedSize, freeLists[listIndex])) != NULL) {
+            split(ptr, adjustedSize, freeLists[listIndex]);
+            return ptr;
+        }
+        listIndex++;
     }
 
     // No fit found. Get more memory and place the block.
     extendSize = MAX(adjustedSize, CHUNKSIZE);
     if ((ptr = extend_heap(extendSize/WSIZE)) == NULL)
         return NULL;
-    split(ptr, adjustedSize);
+    split(ptr, adjustedSize, freeLists[listIndex]);
     return ptr;
 
 }
@@ -167,9 +180,10 @@ void *mm_realloc(void *ptr, size_t size) {
         int next_block_available = IS_ALLOC(HEADER(NEXT_BLK(ptr)));
         int current_size = GET_SIZE(HEADER(ptr));
         int next_size = GET_SIZE(HEADER(NEXT_BLK(ptr)));
+        int nextListIndex = find_list(next_size);
 
         if (!next_block_available && (next_size + current_size > size + DSIZE)) {
-            erase(NEXT_BLK(ptr));
+            erase(NEXT_BLK(ptr), freeLists[nextListIndex]);
             SET_INT(HEADER(ptr), PACK(next_size + current_size, 1));
             SET_INT(FOOTER(ptr), PACK(next_size + current_size, 1));
             return ptr;
@@ -203,7 +217,7 @@ static void* extend_heap(size_t words) {
     SET_INT(HEADER(bp), PACK(size, 0));             // Free block header
     SET_INT(FOOTER(bp), PACK(size, 0));             // Free block footer
     SET_INT(HEADER(NEXT_BLK(bp)), PACK(0, 1));      // New Epilogue Header
-
+    
     // Coalesce if the previous block was free
     return coalesce(bp);
 }
@@ -217,45 +231,56 @@ static void* coalesce(void* ptr) {
     size_t next_alloc = IS_ALLOC(HEADER(NEXT_BLK(ptr)));
     size_t size = GET_SIZE(HEADER(ptr));
 
+    int prevListIndex = find_list(GET_SIZE(HEADER(PREV_BLK(ptr))));
+    int nextListIndex = find_list(GET_SIZE(HEADER(NEXT_BLK(ptr))));
+    int newListIndex = find_list(size);    
+
     if (prev_alloc && next_alloc) {				// Souronding blocks are allocated
     	// Do nothing
 
     } else if (prev_alloc && !next_alloc) {		// Next block is free
+        erase(ptr, freeLists[newListIndex]);
         size += GET_SIZE(HEADER(NEXT_BLK(ptr)));
-        erase(NEXT_BLK(ptr));
+        newListIndex = find_list(size);
+        erase(NEXT_BLK(ptr), freeLists[nextListIndex]);
         SET_INT(HEADER(ptr), PACK(size, 0));
         SET_INT(FOOTER(ptr), PACK(size, 0));
 
     } else if (!prev_alloc && next_alloc) {		// Previous block is free
+        erase(ptr, freeLists[newListIndex]);
         size += GET_SIZE(HEADER(PREV_BLK(ptr)));
+        newListIndex = find_list(size);
         ptr = PREV_BLK(ptr);
-        erase(ptr);
+        erase(ptr, freeLists[prevListIndex]);
         SET_INT(HEADER(ptr), PACK(size, 0));
-        SET_INT(FOOTER(ptr), PACK(size, 0));
+        SET_INT(FOOTER(NEXT_BLK(ptr)), PACK(size, 0));
 
     } else {									// Both next & prev block are free
+        erase(ptr, freeLists[newListIndex]);
         size += GET_SIZE(HEADER(PREV_BLK(ptr))) + GET_SIZE(HEADER(NEXT_BLK(ptr)));
-        erase(NEXT_BLK(ptr));
-        erase(PREV_BLK(ptr));
+        newListIndex = find_list(size);
+        erase(NEXT_BLK(ptr), freeLists[nextListIndex]);
+        erase(PREV_BLK(ptr), freeLists[prevListIndex]);
         ptr = PREV_BLK(ptr);
 
         SET_INT(HEADER(ptr), PACK(size, 0));
-        SET_INT(FOOTER(ptr), PACK(size, 0));
+        SET_INT(FOOTER(NEXT_BLK(NEXT_BLK(ptr))), PACK(size, 0));
         
     }
 
-    return push_front(ptr);
+    return push_front(ptr, freeLists[newListIndex]);
 }
 
 /* 
  * find_fit - Find a fit for a chunk of aSize, implemented with first fit.
  */
-static void* find_fit(size_t aSize) {
+static void* find_fit(size_t aSize, void* freelist_head) {
     void* ptr = NULL;
-
-    for (ptr = freelist_head; IS_ALLOC(HEADER(ptr)) == 0; ptr = NEXT_PTR(ptr)) {
-        if (GET_SIZE(HEADER(ptr)) >= aSize) {
-            return ptr;
+    if (freelist_head) {
+        for (ptr = freelist_head; IS_ALLOC(HEADER(ptr)) == 0; ptr = NEXT_PTR(ptr)) {
+            if (GET_SIZE(HEADER(ptr)) >= aSize) {
+                return ptr;
+            }
         }
     }
     return NULL;
@@ -265,14 +290,14 @@ static void* find_fit(size_t aSize) {
  *i place - Places the new segment into the free block. Will slice
  *          if there is extra space at the end.
  */
-static void split(void* ptr, size_t neededSize) {
+static void split(void* ptr, size_t neededSize, void* freelist_head) {
     
     size_t blockSize = GET_SIZE(HEADER(ptr));   
 
     if ((blockSize - neededSize) >= MINBLK) { 
         SET_INT(HEADER(ptr), PACK(neededSize, 1));
         SET_INT(FOOTER(ptr), PACK(neededSize, 1));
-        erase(ptr);
+        erase(ptr, freelist_head);
         ptr = NEXT_BLK(ptr);
         SET_INT(HEADER(ptr), PACK(blockSize-neededSize, 0));
         SET_INT(FOOTER(ptr), PACK(blockSize-neededSize, 0));
@@ -280,17 +305,18 @@ static void split(void* ptr, size_t neededSize) {
     } else {
         SET_INT(HEADER(ptr), PACK(blockSize, 1));
         SET_INT(FOOTER(ptr), PACK(blockSize, 1));
-        erase(ptr);
+        erase(ptr, freelist_head);
     }
 }
 
 /* 
  * push_front - Places the new segment into the freelist.
  */
-static void* push_front(void* new_ptr) {
+static void* push_front(void* new_ptr, void* freelist_head) {
 	SET_PTR(NEXT_PTR(new_ptr), freelist_head);
         SET_PTR(PREV_PTR(new_ptr), NULL);
-        SET_PTR(PREV_PTR(freelist_head), new_ptr);
+        if (freelist_head)
+            SET_PTR(PREV_PTR(freelist_head), new_ptr);
 
 	freelist_head = new_ptr;
 
@@ -300,7 +326,7 @@ static void* push_front(void* new_ptr) {
 /* 
  * erase - Removes the new segment from the freelist.
  */
-static void erase(void* delNode) {
+static void erase(void* delNode, void* freelist_head) {
 	if (PREV_PTR(delNode)) {
 		SET_PTR(NEXT_PTR(PREV_PTR(delNode)), NEXT_PTR(delNode));
 	
@@ -308,6 +334,28 @@ static void erase(void* delNode) {
 		freelist_head = NEXT_PTR(delNode);
 
 	}
+        if (NEXT_PTR(delNode))
+	    SET_PTR(PREV_PTR(NEXT_PTR(delNode)), PREV_PTR(delNode));
+}
 
-	SET_PTR(PREV_PTR(NEXT_PTR(delNode)), PREV_PTR(delNode));
+static int find_list(size_t size) {
+    if (size <= 16)
+        return 0;
+    if (size <= 32)
+        return 1;
+    if (size <= 64)
+        return 2;
+    if (size <= 128)
+        return 3;
+    if (size <= 256)
+        return 4;
+    if (size <= 512)
+        return 5;
+    if (size <= 1024)
+        return 6;
+    if (size <= 2048)
+        return 7;
+    if (size <= 4096)
+        return 8;
+    return 9;  
 }
