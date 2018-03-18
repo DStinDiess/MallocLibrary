@@ -239,7 +239,6 @@ static void* coalesce(void* ptr) {
     	// Do nothing
 
     } else if (prev_alloc && !next_alloc) {		// Next block is free
-        erase(ptr, freeLists[newListIndex]);
         size += GET_SIZE(HEADER(NEXT_BLK(ptr)));
         newListIndex = find_list(size);
         erase(NEXT_BLK(ptr), freeLists[nextListIndex]);
@@ -247,16 +246,14 @@ static void* coalesce(void* ptr) {
         SET_INT(FOOTER(ptr), PACK(size, 0));
 
     } else if (!prev_alloc && next_alloc) {		// Previous block is free
-        erase(ptr, freeLists[newListIndex]);
         size += GET_SIZE(HEADER(PREV_BLK(ptr)));
         newListIndex = find_list(size);
         ptr = PREV_BLK(ptr);
         erase(ptr, freeLists[prevListIndex]);
         SET_INT(HEADER(ptr), PACK(size, 0));
-        SET_INT(FOOTER(NEXT_BLK(ptr)), PACK(size, 0));
+        SET_INT(FOOTER(ptr), PACK(size, 0));
 
     } else {									// Both next & prev block are free
-        erase(ptr, freeLists[newListIndex]);
         size += GET_SIZE(HEADER(PREV_BLK(ptr))) + GET_SIZE(HEADER(NEXT_BLK(ptr)));
         newListIndex = find_list(size);
         erase(NEXT_BLK(ptr), freeLists[nextListIndex]);
@@ -264,7 +261,7 @@ static void* coalesce(void* ptr) {
         ptr = PREV_BLK(ptr);
 
         SET_INT(HEADER(ptr), PACK(size, 0));
-        SET_INT(FOOTER(NEXT_BLK(NEXT_BLK(ptr))), PACK(size, 0));
+        SET_INT(FOOTER(ptr), PACK(size, 0));
         
     }
 
