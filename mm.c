@@ -87,7 +87,9 @@ static void* push_front(void*);
 static void  erase(void*);
 
 /* 
- * mm_init - initialize the malloc package.
+ * mm_init - initialize the malloc package. Create a prologue block for the beginning
+ *           of the list, and point the freelist head at the epilogue head. Then extend the heap
+ *           to allocate the minimum block (4 words)
  */
 int mm_init(void) {
 
@@ -108,8 +110,8 @@ int mm_init(void) {
 
 
 /* 
- * mm_malloc - Allocate a block by incrementing the brk pointer.
- *     Always allocate a block whose size is a multiple of the alignment.
+ * mm_malloc - Adjust the size to be aligned. Then check for a fit in the free list. If one is found, split() with our adjusted size.
+ *             If no fit is found, extend the heap by the max of the adjusted size and chunksize, then split()
  */
 void *mm_malloc(size_t size) {
     size_t adjustedSize, extendSize;
@@ -142,7 +144,7 @@ void *mm_malloc(size_t size) {
 }
 
 /*
- * mm_free - Freeing a block does nothing.
+ * mm_free - Set the HEADER and FOOTER tags to the size currently allocated, then coalesce()
  */
 void mm_free(void *ptr) {
     size_t size = GET_SIZE(HEADER(ptr));
@@ -188,7 +190,8 @@ void *mm_realloc(void *ptr, size_t size) {
 
 
 /* 
- * extend_heap - Extend the heap with a new free block.
+ * extend_heap - Extend the heap with an even number of blocks. Set the HEADER and FOOTER pointers
+ *               to be this new size, and the NEXT_BLK to be empty. Then coalesce().
  */
 static void* extend_heap(size_t words) {
     char* bp;
@@ -209,7 +212,8 @@ static void* extend_heap(size_t words) {
 }
 
 /* 
- * coalesce - Merge free blocks to prevent too small of free blocks.
+ * coalesce - Merge free blocks to prevent too small of free blocks. Erase the NEXT_BLK, PREV_BLK, both,
+ *            or neither, depending on if they're allocated. Then, merge the consecutive free blocks and push_front()
  */
 static void* coalesce(void* ptr) {
     
@@ -248,7 +252,8 @@ static void* coalesce(void* ptr) {
 }
 
 /* 
- * find_fit - Find a fit for a chunk of aSize, implemented with first fit.
+ * find_fit - Find a fit for a chunk of aSize by iterating through the free list. 
+ *            Implemented with first fit.
  */
 static void* find_fit(size_t aSize) {
     void* ptr = NULL;
@@ -262,8 +267,9 @@ static void* find_fit(size_t aSize) {
 }
 
 /* 
- *i place - Places the new segment into the free block. Will slice
- *          if there is extra space at the end.
+ *split - Places the new segment into the free block. Will slice
+ *        if there is extra space at the end by setting the tags
+ *        and calling coalesce().
  */
 static void split(void* ptr, size_t neededSize) {
     
