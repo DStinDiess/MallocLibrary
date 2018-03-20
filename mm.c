@@ -1,13 +1,14 @@
 /*
- * mm-naive.c - The fastest, least memory-efficient malloc package.
+ * mm.c - Implementation of an explicit free-list for the malloc/free package.
  * 
- * In this naive approach, a block is allocated by simply incrementing
- * the brk pointer.  A block is pure payload. There are no headers or
- * footers.  Blocks are never coalesced or reused. Realloc is
- * implemented directly using mm_malloc and mm_free.
- *
- * NOTE TO STUDENTS: Replace this header comment with your own header
- * comment that gives a high level description of your solution.
+ * In our appraoch, in the malloc function we allocate a block that is at 
+ * least the size of our minimum block (2 words) so that all blocks have the capability
+ * to have the previous and next pointers that we use in the free blocks to manage the
+ * explicit free list. When we extend the heap we ensure that the amount of new memory 
+ * we are extending is in alignment and over our minimum block size. Our placement policy 
+ * is a first-fit because we found this has a much higher performance than the best-fit, 
+ * because it doesn't require searching the entire free list. The coelescing is done in 
+ * constant time because we added prologue and epilouge blocks. 
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -155,8 +156,15 @@ void mm_free(void *ptr) {
 }
 
 /*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free.
- * 					Done to recieve a wholistic score.
+ * mm_realloc - Realloc will fall into these cases:
+ *					- Bad request | size is 0 so free the block
+ 					- The size requested is smaller than the current block so do no work
+ 					- The size requested is larger than the current allocated block:
+ 						- The next block could be free and have enough space to fit the 
+ 							new request when combined with the current block. Check and
+ 							combine if possible.
+ 						- Otherwise allocate a new block and then copy the user data over,
+ 							freeing the original block.
  */
 void *mm_realloc(void *ptr, size_t size) {
     if (size <= 0) {
